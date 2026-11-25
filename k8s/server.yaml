@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobqueue-server
+  namespace: jobqueue
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: jobqueue-server
+  template:
+    metadata:
+      labels:
+        app: jobqueue-server
+    spec:
+      containers:
+        - name: server
+          image: jobqueue:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:50051"
+            - name: RUST_LOG
+              value: info
+          ports:
+            - containerPort: 50051
+          readinessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobqueue-server
+  namespace: jobqueue
+spec:
+  selector:
+    app: jobqueue-server
+  ports:
+    - port: 50051
+      targetPort: 50051
+  type: ClusterIP

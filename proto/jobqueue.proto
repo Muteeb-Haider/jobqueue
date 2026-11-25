@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package jobqueue;
+
+service JobQueue {
+  rpc Enqueue(EnqueueRequest) returns (EnqueueResponse);
+  rpc Pull(PullRequest) returns (PullResponse);
+  rpc Acknowledge(AckRequest) returns (AckResponse);
+  rpc Fail(FailRequest) returns (FailResponse);
+}
+
+message EnqueueRequest {
+  string idempotency_key = 1;
+  string queue = 2;
+  bytes payload = 3;
+  int32 max_attempts = 4;
+}
+
+message EnqueueResponse {
+  string job_id = 1;
+  bool deduplicated = 2;
+}
+
+message PullRequest {
+  string queue = 1;
+  int32 count = 2;
+}
+
+message Job {
+  string job_id = 1;
+  string queue = 2;
+  bytes payload = 3;
+  int32 attempt = 4;
+}
+
+message PullResponse {
+  repeated Job jobs = 1;
+}
+
+message AckRequest {
+  string job_id = 1;
+}
+
+message AckResponse {}
+
+message FailRequest {
+  string job_id = 1;
+  string error = 2;
+}
+
+message FailResponse {}
