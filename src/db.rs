@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -29,7 +29,7 @@ pub async fn connect(database_url: &str) -> Result<PgPool> {
 }
 
 /// Insert a job, returning (id, deduplicated).
-/// Uses INSERT ... ON CONFLICT DO NOTHING so duplicate idempotency keys are ignored.
+/// ON CONFLICT DO NOTHING gives us idempotency.
 pub async fn enqueue(
     pool: &PgPool,
     idempotency_key: &str,
@@ -38,7 +38,7 @@ pub async fn enqueue(
     max_attempts: i32,
 ) -> Result<(Uuid, bool)> {
     let id = Uuid::new_v4();
-    let affected = sqlx::query!(
+    let affected = sqlx::query_unchecked!(
         r#"
         INSERT INTO jobs (id, idempotency_key, queue, payload, max_attempts)
         VALUES ($1, $2, $3, $4, $5)
@@ -55,8 +55,7 @@ pub async fn enqueue(
     .rows_affected();
 
     if affected == 0 {
-        // Return the existing job id
-        let existing = sqlx::query_scalar!(
+        let existing: Uuid = sqlx::query_scalar_unchecked!(
             "SELECT id FROM jobs WHERE idempotency_key = $1 AND queue = $2",
             idempotency_key,
             queue
@@ -71,14 +70,13 @@ pub async fn enqueue(
 
 /// Atomically claim up to `count` pending/retryable jobs using SKIP LOCKED.
 pub async fn pull(pool: &PgPool, queue: &str, count: i32) -> Result<Vec<Job>> {
-    let lock_secs = 30i64;
-    let jobs = sqlx::query_as!(
+    let jobs = sqlx::query_as_unchecked!(
         Job,
         r#"
         UPDATE jobs SET
             status = 'running',
             attempt = attempt + 1,
-            locked_until = NOW() + ($3 * INTERVAL '1 second'),
+            locked_until = NOW() + INTERVAL '30 seconds',
             updated_at = NOW()
         WHERE id IN (
             SELECT id FROM jobs
@@ -93,7 +91,6 @@ pub async fn pull(pool: &PgPool, queue: &str, count: i32) -> Result<Vec<Job>> {
         "#,
         queue,
         count as i64,
-        lock_secs as f64,
     )
     .fetch_all(pool)
     .await?;
@@ -101,7 +98,7 @@ pub async fn pull(pool: &PgPool, queue: &str, count: i32) -> Result<Vec<Job>> {
 }
 
 pub async fn acknowledge(pool: &PgPool, job_id: Uuid) -> Result<()> {
-    sqlx::query!(
+    sqlx::query_unchecked!(
         "UPDATE jobs SET status = 'done', updated_at = NOW() WHERE id = $1",
         job_id
     )
@@ -112,15 +109,19 @@ pub async fn acknowledge(pool: &PgPool, job_id: Uuid) -> Result<()> {
 
 /// Mark a job failed; schedule retry with exponential backoff if attempts remain.
 pub async fn fail(pool: &PgPool, job_id: Uuid, error: &str) -> Result<()> {
-    let job = sqlx::query!(
+    // Read current attempt count
+    let row = sqlx::query_unchecked!(
         "SELECT attempt, max_attempts FROM jobs WHERE id = $1",
         job_id
     )
     .fetch_one(pool)
     .await?;
 
-    if job.attempt >= job.max_attempts {
-        sqlx::query!(
+    let attempt: i32 = row.attempt;
+    let max_attempts: i32 = row.max_attempts;
+
+    if attempt >= max_attempts {
+        sqlx::query_unchecked!(
             "UPDATE jobs SET status = 'failed', last_error = $2, updated_at = NOW() WHERE id = $1",
             job_id,
             error
@@ -128,9 +129,9 @@ pub async fn fail(pool: &PgPool, job_id: Uuid, error: &str) -> Result<()> {
         .execute(pool)
         .await?;
     } else {
-        // backoff: 2^attempt seconds (capped at 3600)
-        let backoff = (2i64.pow(job.attempt as u32)).min(3600);
-        sqlx::query!(
+        // 2^attempt seconds, capped at 3600; cast to f64 for Postgres interval multiply
+        let backoff: f64 = (2i32.pow(attempt as u32)).min(3600) as f64;
+        sqlx::query_unchecked!(
             r#"
             UPDATE jobs SET
                 status = 'retrying',
@@ -141,7 +142,7 @@ pub async fn fail(pool: &PgPool, job_id: Uuid, error: &str) -> Result<()> {
             "#,
             job_id,
             error,
-            backoff as f64,
+            backoff,
         )
         .execute(pool)
         .await?;

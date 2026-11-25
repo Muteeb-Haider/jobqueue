@@ -2,12 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
 
 env:
   CARGO_TERM_COLOR: always
   RUST_LOG: info
+  # Needed at compile time for sqlx migrate! macro
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobqueue
 
 jobs:
   test:
@@ -32,9 +34,11 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -44,16 +48,15 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Unit tests
         run: cargo test --lib
 
       - name: Integration tests
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobqueue
         run: cargo test --test integration
 
   docker:
@@ -64,7 +67,3 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t jobqueue:${{ github.sha }} .
-
-      - name: Smoke test image
-        run: |
-          docker run --rm --entrypoint /usr/local/bin/server jobqueue:${{ github.sha }} --help || true

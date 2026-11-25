@@ -13,19 +13,14 @@ path = "src/lib.rs"
 
 [dependencies]
 tonic = { version = "0.11", features = ["transport"] }
-tonic-reflection = "0.11"
 prost = "0.12"
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono", "migrate"] }
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono", "migrate", "macros"] }
 uuid = { version = "1", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+chrono = { version = "0.4" }
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tokio-util = "0.7"
-rand = "0.8"
 
 [build-dependencies]
 tonic-build = "0.11"
@@ -34,5 +29,4 @@ tonic-build = "0.11"
 testcontainers = "0.15"
 testcontainers-modules = { version = "0.3", features = ["postgres"] }
 tokio = { version = "1", features = ["full"] }
-tonic = { version = "0.11", features = ["transport"] }
 futures = "0.3"

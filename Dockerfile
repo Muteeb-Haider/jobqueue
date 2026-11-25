@@ -10,6 +10,10 @@ COPY proto ./proto
 COPY migrations ./migrations
 COPY src ./src
 
+# sqlx_migrate! embeds migrations at compile time; SQLX_OFFLINE skips live-DB query checks
+ENV SQLX_OFFLINE=true
+ENV DATABASE_URL=postgres://postgres:postgres@localhost:5432/jobqueue
+
 RUN cargo build --release --bin server
 
 # ---- runtime ----
@@ -18,7 +22,6 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/server /usr/local/bin/server
-COPY --from=builder /app/migrations /migrations
 
 ENV RUST_LOG=info
 EXPOSE 50051
